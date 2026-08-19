@@ -19,6 +19,16 @@ if [ -z "${DSH_UI_PASSWORD:-}" ]; then
   exit 1
 fi
 
+# An EMPTY DEEPSEEK_API_KEY is worse than an absent one. The harness treats the
+# process environment as a read-only credential layer that outranks everything
+# stored, so an empty string left behind by a deployer who skipped the optional
+# variable would shadow the key they later type into Settings > Models and the
+# save would look like it did nothing. Unset it instead.
+if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
+  unset DEEPSEEK_API_KEY || true
+  echo "==> no DEEPSEEK_API_KEY set; add one in Settings > Models after opening the UI"
+fi
+
 mkdir -p "$DSH_HOME" "$DSH_WORKSPACE"
 chmod 700 "$DSH_HOME"
 
