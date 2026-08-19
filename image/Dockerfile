@@ -28,6 +28,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ARG DSH_VERSION=0.1.0-rc.7
 RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" && npm cache clean --force
 
+# Re-enable the settings plane for a non-loopback browser.
+#
+# The harness gates its whole configuration UI - Settings > Models, the
+# credential store, the General settings document - on the CLIENT side, by
+# reading the page's own hostname:
+#
+#   isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)
+#
+# There is no config knob for it. Served from any real domain the flag is
+# false, the settings scope silently falls back to an in-memory store, and the
+# Models page fails with "settings are unavailable in this browser".
+#
+# Upstream's stated reason for the gate is that these methods are pinned to a
+# loopback caller "until a real authentication layer exists". This deployment
+# has one in front of it, and the page URL is not a security signal here - the
+# basic-auth password is. The server-side half of the same pin is already
+# satisfied by the proxy's loopback Host rewrite, so this flag is the only
+# thing left standing between the deployer and their own settings.
+#
+# Deliberately NOT a blanket patch: canOpenPath stays false on this host (the
+# container advertises no native path-open capability), so nothing that needs a
+# desktop is switched on by this.
+#
+# Both greps are assertions. If a version bump reshapes this expression the
+# build fails here rather than shipping an image with a dead Settings page.
+RUN F=/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-connection/lib/client.js \
+    && GATE='isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)' \
+    && grep -qF "$GATE" "$F" \
+    && python3 -c "import sys,pathlib; f=pathlib.Path(sys.argv[1]); t=f.read_text(); g=sys.argv[2]; assert t.count(g)==1, t.count(g); f.write_text(t.replace(g, 'isLoopback: true'))" "$F" "$GATE" \
+    && grep -qF 'isLoopback: true' "$F"
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
