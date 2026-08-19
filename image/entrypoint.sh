@@ -8,27 +8,32 @@ set -euo pipefail
 : "${PORT:=8080}"
 : "${DSH_INTERNAL_PORT:=3080}"
 : "${DSH_UI_USERNAME:=${DSH_UI_USER:-}}"
-: "${DSH_UI_USER_PASSWORD:=${DSH_UI_PASSWORD:-}}"
+: "${DSH_UI_USERPASS:=${DSH_UI_USER_PASSWORD:-${DSH_UI_PASSWORD:-}}}"
 : "${DSH_HOME:=/data/.dsh}"
 : "${DSH_WORKSPACE:=/data/workspace}"
 export DSH_HOME
 export HOME="${HOME:-/data}"
 
-# The pairing is DSH_UI_USERNAME / DSH_UI_USER_PASSWORD, and the password's
-# name is the longer one on purpose. Railway orders the deploy form's fields by
-# variable-name LENGTH and then alphabetically, ignoring the order the template
-# config lists them in. At 15 characters each, DSH_UI_USERNAME and
-# DSH_UI_PASSWORD tied and P beat U, so the form asked for a password before it
-# asked whose. Twenty characters puts the password below the username it
-# belongs to. DSH_UI_USER and DSH_UI_PASSWORD are still honoured as fallbacks
-# for anything already deployed under the earlier names.
+# The pairing is DSH_UI_USERNAME / DSH_UI_USERPASS, and the second name is
+# chosen for its SORT position, not its prose. Railway orders the deploy form's
+# fields by variable-name LENGTH and then alphabetically, ignoring the order the
+# template config lists them in, so the name is the only lever:
+#
+#   DSH_UI_USERNAME(15) < DSH_UI_USERPASS(15, N<P) < DEEPSEEK_API_KEY(16)
+#
+# DSH_UI_PASSWORD also tied at 15 but lost the tiebreak (P<U), which put the
+# password field above the username. DSH_UI_USER_PASSWORD(20) fixed that and
+# then let the optional DEEPSEEK_API_KEY(16) sort BETWEEN the two credentials.
+# Matching the username's length keeps the pair adjacent and the key below both.
+# DSH_UI_USER, DSH_UI_PASSWORD and DSH_UI_USER_PASSWORD are all still honoured
+# as fallbacks for anything already deployed under an earlier name.
 if [ -z "${DSH_UI_USERNAME:-}" ]; then
   echo "FATAL: DSH_UI_USERNAME is empty. Set it to the username you want to log in with." >&2
   exit 1
 fi
 
-if [ -z "${DSH_UI_USER_PASSWORD:-}" ]; then
-  echo "FATAL: DSH_UI_USER_PASSWORD is empty. This UI can run bash on this container;" >&2
+if [ -z "${DSH_UI_USERPASS:-}" ]; then
+  echo "FATAL: DSH_UI_USERPASS is empty. This UI can run bash on this container;" >&2
   echo "       refusing to serve it to the internet without a password." >&2
   exit 1
 fi
@@ -38,8 +43,8 @@ fi
 # with a shell: a guessed one is a stranger running commands on this container,
 # with the deployer's provider key sitting in it. Twelve characters is a low
 # bar deliberately - it stops "test123", not a considered choice.
-if [ "${#DSH_UI_USER_PASSWORD}" -lt 12 ]; then
-  echo "FATAL: DSH_UI_USER_PASSWORD is ${#DSH_UI_USER_PASSWORD} characters. Use at least 12." >&2
+if [ "${#DSH_UI_USERPASS}" -lt 12 ]; then
+  echo "FATAL: DSH_UI_USERPASS is ${#DSH_UI_USERPASS} characters. Use at least 12." >&2
   echo "       This password is the only thing stopping a stranger from running" >&2
   echo "       shell commands on this container. Set a longer one and redeploy." >&2
   exit 1
@@ -68,7 +73,7 @@ git config --global init.defaultBranch main >/dev/null 2>&1 || true
 # The hash is computed per boot rather than stored: the deployer sets a
 # plaintext variable, and a bcrypt hash in the Railway UI would be a variable
 # nobody could read back or change.
-PASSWORD_HASH="$(caddy hash-password --plaintext "$DSH_UI_USER_PASSWORD")"
+PASSWORD_HASH="$(caddy hash-password --plaintext "$DSH_UI_USERPASS")"
 
 cat > /tmp/Caddyfile <<CADDY
 {

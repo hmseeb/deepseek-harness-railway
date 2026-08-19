@@ -31,7 +31,7 @@ jobs:
           # for nobody.
           platforms: linux/amd64
           tags: |
-            ghcr.io/${{ github.repository_owner }}/deepseek-harness-railway:0.1.0-rc.7-r6
+            ghcr.io/${{ github.repository_owner }}/deepseek-harness-railway:0.1.0-rc.7-r7
             ghcr.io/${{ github.repository_owner }}/deepseek-harness-railway:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
