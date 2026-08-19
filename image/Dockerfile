@@ -68,7 +68,7 @@ ENV DSH_HOME=/data/.dsh \
     HOME=/data \
     DSH_WORKSPACE=/data/workspace \
     DSH_INTERNAL_PORT=3080 \
-    DSH_UI_USERNAME=admin \
+    DSH_UI_USER=admin \
     PORT=8080
 
 EXPOSE 8080

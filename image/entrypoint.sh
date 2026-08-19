@@ -7,14 +7,20 @@ set -euo pipefail
 
 : "${PORT:=8080}"
 : "${DSH_INTERNAL_PORT:=3080}"
-: "${DSH_UI_USERNAME:=admin}"
+: "${DSH_UI_USER:=${DSH_UI_USERNAME:-}}"
 : "${DSH_HOME:=/data/.dsh}"
 : "${DSH_WORKSPACE:=/data/workspace}"
 export DSH_HOME
 export HOME="${HOME:-/data}"
 
-if [ -z "${DSH_UI_USERNAME:-}" ]; then
-  echo "FATAL: DSH_UI_USERNAME is empty. Set it to the username you want to log in with." >&2
+# DSH_UI_USER, not DSH_UI_USERNAME. Railway orders the deploy form's fields by
+# variable-name LENGTH and then alphabetically, so the 15-character
+# DSH_UI_USERNAME always sorted below the 15-character DSH_UI_PASSWORD and the
+# form asked for a password before it asked who it belonged to. At 11
+# characters this one sorts above it. DSH_UI_USERNAME is still honoured as a
+# fallback for anything already deployed with it.
+if [ -z "${DSH_UI_USER:-}" ]; then
+  echo "FATAL: DSH_UI_USER is empty. Set it to the username you want to log in with." >&2
   exit 1
 fi
 
@@ -82,7 +88,7 @@ cat > /tmp/Caddyfile <<CADDY
 
 	handle {
 		basic_auth {
-			${DSH_UI_USERNAME} ${PASSWORD_HASH}
+			${DSH_UI_USER} ${PASSWORD_HASH}
 		}
 
 		reverse_proxy 127.0.0.1:${DSH_INTERNAL_PORT} {
@@ -142,7 +148,7 @@ if ! curl -sf -o /dev/null "http://127.0.0.1:${DSH_INTERNAL_PORT}/"; then
   exit 1
 fi
 
-echo "==> starting caddy on :${PORT} (basic auth user ${DSH_UI_USERNAME})"
+echo "==> starting caddy on :${PORT} (basic auth user ${DSH_UI_USER})"
 caddy run --config /tmp/Caddyfile --adapter caddyfile &
 CADDY_PID=$!
 
