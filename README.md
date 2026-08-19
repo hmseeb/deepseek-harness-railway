@@ -1,9 +1,9 @@
-# DeepSeek Harness on Railway
+# DSH Coding Agent on Railway
 
 DeepSeek's own coding agent, `dsh`, running as a persistent web app on Railway
 behind a password you set.
 
-Deploy: https://railway.com/deploy/deepseek-harness
+Deploy: https://railway.com/deploy/dsh-coding-agent
 
 ## What you get
 
@@ -48,6 +48,29 @@ That makes the password the entire security boundary. Treat it accordingly:
 - Anyone who has it can run arbitrary commands in this container and read your
   DeepSeek API key.
 - Do not put a shared or reused password here.
+
+## One patched line
+
+The harness gates its entire configuration UI on the client side, by reading the
+page's own hostname:
+
+```js
+isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)
+```
+
+There is no setting for it. Served from any real domain that flag is false, the
+settings scope silently falls back to an in-memory store, and Settings > Models
+fails with "settings are unavailable in this browser". The image rewrites that
+one expression to `isLoopback: true`.
+
+Upstream's reason for the gate is that these methods stay loopback-only "until a
+real authentication layer exists". This deployment has one in front of it, and
+the page URL is not the security signal here; the password is. The build asserts
+the expression before and after rewriting, so a version bump that reshapes it
+fails the build rather than shipping a dead Settings page.
+
+Nothing that needs a desktop is switched on by this. `host.describe` reports
+`canOpenPath: false` on this container, so the file-open affordances stay hidden.
 
 ## Variables
 
