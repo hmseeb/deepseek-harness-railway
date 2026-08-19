@@ -13,9 +13,26 @@ set -euo pipefail
 export DSH_HOME
 export HOME="${HOME:-/data}"
 
+if [ -z "${DSH_UI_USERNAME:-}" ]; then
+  echo "FATAL: DSH_UI_USERNAME is empty. Set it to the username you want to log in with." >&2
+  exit 1
+fi
+
 if [ -z "${DSH_UI_PASSWORD:-}" ]; then
   echo "FATAL: DSH_UI_PASSWORD is empty. This UI can run bash on this container;" >&2
   echo "       refusing to serve it to the internet without a password." >&2
+  exit 1
+fi
+
+# The deployer chooses this password, so the floor is enforced here rather than
+# hoped for. It is the ONLY barrier between the public internet and an agent
+# with a shell: a guessed one is a stranger running commands on this container,
+# with the deployer's provider key sitting in it. Twelve characters is a low
+# bar deliberately - it stops "test123", not a considered choice.
+if [ "${#DSH_UI_PASSWORD}" -lt 12 ]; then
+  echo "FATAL: DSH_UI_PASSWORD is ${#DSH_UI_PASSWORD} characters. Use at least 12." >&2
+  echo "       This password is the only thing stopping a stranger from running" >&2
+  echo "       shell commands on this container. Set a longer one and redeploy." >&2
   exit 1
 fi
 
