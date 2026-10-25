@@ -63,6 +63,39 @@ git config --global init.defaultBranch main >/dev/null 2>&1 || true
 # nobody could read back or change.
 PASSWORD_HASH="$(caddy hash-password --plaintext "$DSH_UI_USERPASS")"
 
+
+cleanup() {
+  trap - TERM INT
+  [ -n "${DSH_PID:-}" ] && kill "$DSH_PID" 2>/dev/null || true
+  [ -n "${CADDY_PID:-}" ] && kill "$CADDY_PID" 2>/dev/null || true
+}
+trap cleanup TERM INT
+
+echo "==> starting dsh on 127.0.0.1:${DSH_INTERNAL_PORT} (workspace ${DSH_WORKSPACE})"
+cd "$DSH_WORKSPACE"
+# stdout carries the launch URL with the token; tee keeps it in the deploy logs.
+dsh web --no-open --port "$DSH_INTERNAL_PORT" > >(tee /tmp/dsh.log) 2>&1 &
+DSH_PID=$!
+
+for attempt in $(seq 1 180); do
+  DSH_TOKEN="$(sed -n 's/.*[?&]token=\([A-Za-z0-9_-]*\).*/\1/p' /tmp/dsh.log | head -n1)"
+  if [ -n "$DSH_TOKEN" ] && curl -s -o /dev/null "http://127.0.0.1:${DSH_INTERNAL_PORT}/"; then
+    echo "==> dsh is serving after ${attempt}s"
+    break
+  fi
+  if ! kill -0 "$DSH_PID" 2>/dev/null; then
+    echo "FATAL: dsh exited during startup" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+if [ -z "$DSH_TOKEN" ] || ! curl -s -o /dev/null "http://127.0.0.1:${DSH_INTERNAL_PORT}/"; then
+  echo "FATAL: dsh did not answer on 127.0.0.1:${DSH_INTERNAL_PORT} within 180s" >&2
+  cleanup
+  exit 1
+fi
+
 cat > /tmp/Caddyfile <<CADDY
 {
 	admin off
@@ -82,11 +115,41 @@ cat > /tmp/Caddyfile <<CADDY
 		respond "ok" 200
 	}
 
-	handle {
-		basic_auth {
-			${DSH_UI_USERNAME} ${PASSWORD_HASH}
-		}
+	# Everything but /healthz. Site-level, because basic_auth sorts ahead of
+	# every handle block below.
+	@protected not path /healthz
+	basic_auth @protected {
+		${DSH_UI_USERNAME} ${PASSWORD_HASH}
+	}
 
+	# Since 0.2 dsh has its own browser login: a per-process launch token,
+	# accepted only as GET /?token=..., traded for a signed cookie (secret kept
+	# in DSH_HOME, so cookies survive restarts). Basic auth above is still the
+	# boundary; this hands an already-authenticated browser that token. A 401
+	# on the page root (no cookie, expired, or stale) bounces to the exchange,
+	# whose 303 to ./ lands back on /.
+	handle /__dsh_login {
+		rewrite * /?token=${DSH_TOKEN}
+		reverse_proxy 127.0.0.1:${DSH_INTERNAL_PORT} {
+			header_up Host 127.0.0.1:${DSH_INTERNAL_PORT}
+			header_up -Origin
+		}
+	}
+
+	handle / {
+		reverse_proxy 127.0.0.1:${DSH_INTERNAL_PORT} {
+			header_up Host 127.0.0.1:${DSH_INTERNAL_PORT}
+			header_up -Origin
+			@unauthenticated status 401
+			# Not redir: inside handle_response it answers an empty 200.
+			handle_response @unauthenticated {
+				header Location /__dsh_login
+				respond 302
+			}
+		}
+	}
+
+	handle {
 		reverse_proxy 127.0.0.1:${DSH_INTERNAL_PORT} {
 			# REQUIRED, not cosmetic. Upstream's /api fence refuses any request
 			# whose Host is neither loopback nor a declared trustedHost, and it
@@ -114,36 +177,6 @@ cat > /tmp/Caddyfile <<CADDY
 }
 CADDY
 
-cleanup() {
-  trap - TERM INT
-  [ -n "${DSH_PID:-}" ] && kill "$DSH_PID" 2>/dev/null || true
-  [ -n "${CADDY_PID:-}" ] && kill "$CADDY_PID" 2>/dev/null || true
-}
-trap cleanup TERM INT
-
-echo "==> starting dsh on 127.0.0.1:${DSH_INTERNAL_PORT} (workspace ${DSH_WORKSPACE})"
-cd "$DSH_WORKSPACE"
-dsh web --no-open --port "$DSH_INTERNAL_PORT" &
-DSH_PID=$!
-
-for attempt in $(seq 1 180); do
-  if curl -sf -o /dev/null "http://127.0.0.1:${DSH_INTERNAL_PORT}/"; then
-    echo "==> dsh is serving after ${attempt}s"
-    break
-  fi
-  if ! kill -0 "$DSH_PID" 2>/dev/null; then
-    echo "FATAL: dsh exited during startup" >&2
-    exit 1
-  fi
-  sleep 1
-done
-
-if ! curl -sf -o /dev/null "http://127.0.0.1:${DSH_INTERNAL_PORT}/"; then
-  echo "FATAL: dsh did not answer on 127.0.0.1:${DSH_INTERNAL_PORT} within 180s" >&2
-  cleanup
-  exit 1
-fi
-
 echo "==> starting caddy on :${PORT} (basic auth user ${DSH_UI_USERNAME})"
 caddy run --config /tmp/Caddyfile --adapter caddyfile &
 CADDY_PID=$!
@@ -151,7 +184,8 @@ CADDY_PID=$!
 # Either half dying takes the container down so Railway restarts the pair
 # together. A surviving Caddy in front of a dead dsh is the exact false-green
 # this avoids.
-wait -n
+# Explicit ids: a bare wait -n could also return for the tee process substitution.
+wait -n "$DSH_PID" "$CADDY_PID"
 status=$?
 echo "==> a supervised process exited (status ${status}); shutting down"
 cleanup

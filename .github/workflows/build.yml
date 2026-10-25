@@ -23,6 +23,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Gate the push on the auth contract: an upstream bump that changes the
+      # login shape must fail here, not on a deployer's service.
+      - uses: docker/build-push-action@v6
+        with:
+          context: image
+          load: true
+          tags: dsh-railway:test
+          cache-from: type=gha
+      - name: Contract test
+        timeout-minutes: 8
+        run: bash test/contract.sh dsh-railway:test
       - uses: docker/build-push-action@v6
         with:
           context: image
@@ -31,7 +42,7 @@ jobs:
           # for nobody.
           platforms: linux/amd64
           tags: |
-            ghcr.io/${{ github.repository_owner }}/deepseek-harness-railway:0.1.0-rc.7-r8
+            ghcr.io/${{ github.repository_owner }}/deepseek-harness-railway:0.2.1-rc.2-r1
             ghcr.io/${{ github.repository_owner }}/deepseek-harness-railway:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

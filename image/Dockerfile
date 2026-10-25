@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git ripgrep less procps tini python3 \
     && rm -rf /var/lib/apt/lists/*
 
-ARG DSH_VERSION=0.1.0-rc.7
+ARG DSH_VERSION=0.2.1-rc.2
 RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" && npm cache clean --force
 
 # Re-enable the settings plane for a non-loopback browser.
@@ -34,7 +34,7 @@ RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" && npm cache clean --force
 # credential store, the General settings document - on the CLIENT side, by
 # reading the page's own hostname:
 #
-#   isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)
+#   isLoopback: transport?.ownsHost === true || pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)
 #
 # There is no config knob for it. Served from any real domain the flag is
 # false, the settings scope silently falls back to an in-memory store, and the
@@ -53,8 +53,8 @@ RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" && npm cache clean --force
 #
 # Both greps are assertions. If a version bump reshapes this expression the
 # build fails here rather than shipping an image with a dead Settings page.
-RUN F=/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-connection/lib/client.js \
-    && GATE='isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)' \
+RUN F=/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-connection/lib/client.browser.js \
+    && GATE='isLoopback: transport?.ownsHost === true || pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname)' \
     && grep -qF "$GATE" "$F" \
     && python3 -c "import sys,pathlib; f=pathlib.Path(sys.argv[1]); t=f.read_text(); g=sys.argv[2]; assert t.count(g)==1, t.count(g); f.write_text(t.replace(g, 'isLoopback: true'))" "$F" "$GATE" \
     && grep -qF 'isLoopback: true' "$F"
